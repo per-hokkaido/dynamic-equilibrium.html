@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Sim1：動的平衡の発見 ― ミクロの世界を見る</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+      background: linear-gradient(145deg, #0c1222 0%, #101c2e 50%, #0a1a2a 100%);
+      min-height: 100vh; min-height: 100dvh;
+      color: #e0e0e0;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+
+    /* ========== レイアウト ========== */
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 300px;
+      grid-template-rows: 1fr;
+      height: 100vh; height: 100dvh;
+      gap: 12px; padding: 12px;
+    }
+
+    .simulation-area {
+      display: flex; flex-direction: column; gap: 10px; min-height: 0;
+    }
+
+    /* ========== 天秤エリア ========== */
+    .balance-area {
+      height: 100px; min-height: 100px;
+      background: linear-gradient(145deg, #14243d, #0e1b30);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+      padding: 8px 16px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .balance-label {
+      font-size: 0.75rem; color: #94a3b8; margin-bottom: 2px; z-index: 2;
+    }
+
+    .balance-canvas-wrap {
+      width: 100%; flex: 1; min-height: 0;
+    }
+
+    #balanceCanvas {
+      width: 100%; height: 100%; display: block;
+    }
+
+    /* 平衡到達時の背景グロー */
+    .balance-area.eq-glow {
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04),
+                  0 0 40px rgba(74,222,128,0.15), inset 0 0 30px rgba(74,222,128,0.05);
+      transition: box-shadow 1s ease;
+    }
+
+    /* ========== 分子コンテナ ========== */
+    .molecule-view {
+      flex: 1;
+      background: linear-gradient(145deg, #14243d, #0e1b30);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+      padding: 12px; display: flex; flex-direction: column; min-height: 0;
+      position: relative;
+    }
+
+    .molecule-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px; flex-wrap: wrap; gap: 8px;
+    }
+
+    .molecule-title { font-size: 0.9rem; font-weight: 600; color: #67e8f9; }
+    .molecule-counts { display: flex; gap: 14px; font-size: 0.85rem; }
+    .count-a { color: #22d3ee; font-weight: 700; }
+    .count-b { color: #fb923c; font-weight: 700; }
+
+    .molecule-canvas-wrap {
+      flex: 1; position: relative; border-radius: 12px; overflow: hidden;
+      background: #060e1a; border: 1px solid rgba(255,255,255,0.06); min-height: 0;
+    }
+
+    #moleculeCanvas { width: 100%; height: 100%; display: block; }
+
+    /* 状態バッジ */
+    .status-badge {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      padding: 6px 18px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+      pointer-events: none; transition: all 0.6s ease; white-space: nowrap; z-index: 5;
+    }
+
+    .status-badge.waiting {
+      background: rgba(100,116,139,0.5); color: #94a3b8;
+      border: 1px solid rgba(148,163,184,0.2);
+    }
+    .status-badge.approaching {
+      background: rgba(251,191,36,0.15); color: #fbbf24;
+      border: 1px solid rgba(251,191,36,0.3);
+    }
+    .status-badge.equilibrium {
+      background: rgba(74,222,128,0.2); color: #4ade80;
+      border: 1px solid rgba(74,222,128,0.5);
+      box-shadow: 0 0 24px rgba(74,222,128,0.25);
+      font-size: 0.9rem; padding: 7px 22px;
+    }
+    .status-badge.perturbed {
+      background: rgba(248,113,113,0.18); color: #f87171;
+      border: 1px solid rgba(248,113,113,0.4);
+      animation: pulse-alert 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-alert {
+      0%, 100% { opacity: 0.8; transform: translateX(-50%) scale(1); }
+      50% { opacity: 1; transform: translateX(-50%) scale(1.04); }
+    }
+
+    /* 変換カウンタ（目立つ位置に） */
+    .conversion-bar {
+      display: flex; justify-content: center; gap: 24px;
+      padding: 6px 0; font-size: 0.78rem;
+    }
+
+    .conv-item { display: flex; align-items: center; gap: 4px; }
+    .conv-label-f { color: #22d3ee; font-weight: 600; }
+    .conv-label-r { color: #fb923c; font-weight: 600; }
+    .conv-count { color: #e2e8f0; font-weight: 700; font-size: 0.9rem; }
+
+    .conv-note {
+      text-align: center; font-size: 0.68rem; color: #64748b;
+      min-height: 1.2em; transition: color 0.5s;
+    }
+    .conv-note.highlight {
+      color: #4ade80;
+    }
+
+    /* ========== グラフ ========== */
+    .graph-area {
+      height: 150px; min-height: 150px;
+      background: linear-gradient(145deg, #14243d, #0e1b30);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+      padding: 10px; display: flex; flex-direction: column;
+    }
+
+    .graph-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 4px; flex-wrap: wrap; gap: 6px;
+    }
+
+    .graph-title { font-size: 0.85rem; font-weight: 600; color: #a78bfa; }
+    .graph-legend { display: flex; gap: 14px; font-size: 0.68rem; }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-a { background: #22d3ee; }
+    .dot-b { background: #fb923c; }
+
+    .graph-canvas-wrap { flex: 1; position: relative; min-height: 0; }
+    #graphCanvas { width: 100%; height: 100%; display: block; }
+
+    /* ========== コントロールパネル ========== */
+    .control-panel {
+      background: linear-gradient(145deg, #14243d, #0e1b30);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+      padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+    }
+
+    .panel-title {
+      font-size: 1rem; font-weight: 700; color: #f0f0f0;
+      text-align: center; padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .reaction-display {
+      text-align: center; font-size: 1.3rem; font-weight: 700; padding: 4px 0; letter-spacing: 2px;
+    }
+    .reaction-display .sp-a { color: #22d3ee; }
+    .reaction-display .sp-b { color: #fb923c; }
+    .reaction-display .arrow { color: #94a3b8; font-size: 1.1rem; }
+
+    .control-group { display: flex; flex-direction: column; gap: 5px; }
+
+    .control-label {
+      font-size: 0.8rem; color: #94a3b8;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+
+    .control-value { font-weight: 600; font-size: 0.88rem; }
+    .val-cyan { color: #22d3ee; }
+    .val-orange { color: #fb923c; }
+    .val-blue { color: #60a5fa; }
+
+    input[type="range"] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 6px; border-radius: 3px;
+      background: #1e3050; outline: none; cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: none;
+    }
+
+    #kfSlider::-webkit-slider-thumb { background: linear-gradient(145deg, #67e8f9, #06b6d4); box-shadow: 0 2px 8px rgba(6,182,212,0.5); }
+    #kfSlider::-moz-range-thumb { background: linear-gradient(145deg, #67e8f9, #06b6d4); box-shadow: 0 2px 8px rgba(6,182,212,0.5); }
+    #krSlider::-webkit-slider-thumb { background: linear-gradient(145deg, #fdba74, #f97316); box-shadow: 0 2px 8px rgba(249,115,22,0.5); }
+    #krSlider::-moz-range-thumb { background: linear-gradient(145deg, #fdba74, #f97316); box-shadow: 0 2px 8px rgba(249,115,22,0.5); }
+    #speedSlider::-webkit-slider-thumb { background: linear-gradient(145deg, #93c5fd, #3b82f6); box-shadow: 0 2px 8px rgba(59,130,246,0.5); }
+    #speedSlider::-moz-range-thumb { background: linear-gradient(145deg, #93c5fd, #3b82f6); box-shadow: 0 2px 8px rgba(59,130,246,0.5); }
+
+    /* 統計 */
+    .stats-box {
+      background: rgba(0,0,0,0.25); border-radius: 12px; padding: 12px;
+    }
+    .stats-title { font-size: 0.72rem; color: #94a3b8; margin-bottom: 8px; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-item { text-align: center; }
+    .stat-value { font-size: 1.05rem; font-weight: 700; color: #f0f0f0; }
+    .stat-label { font-size: 0.6rem; color: #64748b; margin-top: 1px; }
+
+    /* ボタン */
+    .add-buttons { display: flex; gap: 8px; }
+
+    .btn-add {
+      flex: 1; padding: 9px 6px; border: none; border-radius: 10px;
+      font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s; display: flex; align-items: center;
+      justify-content: center; gap: 4px; min-height: 40px;
+    }
+
+    .btn-add-a {
+      background: linear-gradient(145deg, #164e63, #0e3a4a); color: #22d3ee;
+      border: 1px solid rgba(34,211,238,0.25);
+    }
+    .btn-add-a:hover, .btn-add-a:active {
+      background: linear-gradient(145deg, #1e6a80, #155e70); border-color: rgba(34,211,238,0.4);
+    }
+    .btn-add-b {
+      background: linear-gradient(145deg, #5c2d0e, #4a2508); color: #fb923c;
+      border: 1px solid rgba(251,146,60,0.25);
+    }
+    .btn-add-b:hover, .btn-add-b:active {
+      background: linear-gradient(145deg, #7a3d14, #6b3410); border-color: rgba(251,146,60,0.4);
+    }
+
+    .button-group { display: flex; gap: 8px; margin-top: auto; }
+
+    .btn {
+      flex: 1; padding: 12px 12px; border: none; border-radius: 12px;
+      font-size: 0.92rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s; display: flex; align-items: center;
+      justify-content: center; gap: 5px; min-height: 46px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(145deg, #22c55e, #16a34a); color: white;
+      box-shadow: 0 4px 15px rgba(34,197,94,0.35);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(34,197,94,0.45); }
+    .btn-primary.running {
+      background: linear-gradient(145deg, #f59e0b, #d97706);
+      box-shadow: 0 4px 15px rgba(245,158,11,0.35);
+    }
+    .btn-secondary {
+      background: linear-gradient(145deg, #475569, #334155); color: white;
+      box-shadow: 0 4px 12px rgba(71,85,105,0.25);
+    }
+    .btn-secondary:hover { background: linear-gradient(145deg, #64748b, #475569); }
+
+    /* ========== レスポンシブ ========== */
+    @media (max-width: 920px) {
+      .container {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto auto;
+        gap: 8px; padding: 8px;
+      }
+      .balance-area { order: 1; height: 80px; min-height: 80px; }
+      .simulation-area { order: 2; }
+      .graph-area { order: 3; height: 130px; min-height: 130px; }
+      .control-panel { order: 4; padding: 14px; gap: 10px; }
+      .panel-title { display: none; }
+      .reaction-display { padding: 2px 0; font-size: 1.1rem; }
+      .stats-grid { grid-template-columns: repeat(4, 1fr); }
+      .button-group { margin-top: 0; }
+    }
+
+    @media (max-width: 480px) {
+      .balance-area { height: 70px; min-height: 70px; padding: 6px 10px; }
+      .molecule-view { padding: 10px; border-radius: 12px; }
+      .molecule-title { font-size: 0.82rem; }
+      .graph-area { height: 110px; min-height: 110px; padding: 8px; border-radius: 12px; }
+      .control-panel { padding: 10px; border-radius: 12px; gap: 8px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .btn { padding: 10px 10px; font-size: 0.85rem; min-height: 42px; }
+      .btn-add { min-height: 38px; font-size: 0.78rem; }
+      .status-badge { font-size: 0.72rem; padding: 5px 14px; }
+    }
+
+    @media (max-height: 500px) and (orientation: landscape) {
+      .container { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+      .simulation-area { grid-column: 1; grid-row: 1; }
+      .balance-area { display: none; }
+      .graph-area { display: none; }
+      .control-panel { grid-column: 2; grid-row: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="simulation-area">
+      <!-- 天秤ビジュアライゼーション -->
+      <div class="balance-area" id="balanceArea">
+        <div class="balance-label">⚖️ 反応速度の天秤：正反応 v₁ と 逆反応 v₂</div>
+        <div class="balance-canvas-wrap">
+          <canvas id="balanceCanvas"></canvas>
+        </div>
+      </div>
+
+      <!-- 分子コンテナ -->
+      <div class="molecule-view">
+        <div class="molecule-header">
+          <div class="molecule-title">⚗️ 反応容器の中（ミクロ視点）</div>
+          <div class="molecule-counts">
+            <span>A: <span class="count-a" id="countA">50</span></span>
+            <span>B: <span class="count-b" id="countB">0</span></span>
+          </div>
+        </div>
+        <div class="molecule-canvas-wrap">
+          <canvas id="moleculeCanvas"></canvas>
+          <div class="status-badge waiting" id="statusBadge">スタートを押して観察開始</div>
+        </div>
+        <!-- 変換カウンタ（目立つ位置） -->
+        <div class="conversion-bar">
+          <div class="conv-item">
+            <span class="conv-label-f">A→B</span>
+            <span class="conv-count" id="convF">0</span>回
+          </div>
+          <div class="conv-item">
+            <span class="conv-label-r">B→A</span>
+            <span class="conv-count" id="convR">0</span>回
+          </div>
+        </div>
+        <div class="conv-note" id="convNote">反応が起きると、ここのカウントが増えます</div>
+      </div>
+
+      <!-- グラフ -->
+      <div class="graph-area">
+        <div class="graph-header">
+          <div class="graph-title">📊 分子数の時間変化</div>
+          <div class="graph-legend">
+            <div class="legend-item"><div class="legend-dot dot-a"></div><span>A</span></div>
+            <div class="legend-item"><div class="legend-dot dot-b"></div><span>B</span></div>
+          </div>
+        </div>
+        <div class="graph-canvas-wrap"><canvas id="graphCanvas"></canvas></div>
+      </div>
+    </div>
+
+    <!-- コントロールパネル -->
+    <div class="control-panel">
+      <div class="panel-title">⚗️ 動的平衡の発見</div>
+
+      <div class="reaction-display">
+        <span class="sp-a">A</span><span class="arrow"> ⇌ </span><span class="sp-b">B</span>
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>正反応 k₁ (A→B)</span>
+          <span class="control-value val-cyan" id="kfValue">0.40</span>
+        </div>
+        <input type="range" id="kfSlider" min="0.05" max="1.0" step="0.05" value="0.40">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>逆反応 k₂ (B→A)</span>
+          <span class="control-value val-orange" id="krValue">0.20</span>
+        </div>
+        <input type="range" id="krSlider" min="0.05" max="1.0" step="0.05" value="0.20">
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>再生速度</span>
+          <span class="control-value val-blue" id="speedValue">1.0x</span>
+        </div>
+        <input type="range" id="speedSlider" min="0.5" max="3" step="0.25" value="1">
+      </div>
+
+      <div class="stats-box">
+        <div class="stats-title">📋 統計情報</div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="elapsedTime">0.0</div>
+            <div class="stat-label">経過時間 (秒)</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="totalMol">50</div>
+            <div class="stat-label">総分子数</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="percentA">100%</div>
+            <div class="stat-label">Aの割合</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="percentB">0%</div>
+            <div class="stat-label">Bの割合</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="add-buttons">
+        <button class="btn-add btn-add-a" id="addABtn">+ A を10個追加</button>
+        <button class="btn-add btn-add-b" id="addBBtn">+ B を10個追加</button>
+      </div>
+
+      <div class="button-group">
+        <button class="btn btn-primary" id="startBtn">▶ スタート</button>
+        <button class="btn btn-secondary" id="resetBtn">↺ リセット</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============================================
+    // 設定
+    // ============================================
+    const INITIAL_A = 50;
+    const MOL_R = 7;
+    const MOL_SPEED = 60;
+
+    let molecules = [];
+    let effects = [];
+    let graphData = [];
+
+    let isRunning = false;
+    let simTime = 0;
+    let kF = 0.40, kR = 0.20;
+    let speed = 1.0;
+
+    let smoothRateF = 0, smoothRateR = 0;
+    const SMOOTH = 0.93;
+
+    let convFTotal = 0, convRTotal = 0;
+    let eqTimer = 0;
+    let equilibriumReached = false;
+    let wasAtEquilibrium = false;
+
+    // 天秤の角度（ラジアン）
+    let balanceAngle = 0;         // 現在角度
+    let balanceTargetAngle = 0;   // 目標角度
+    let balanceWobble = 0;        // 微振動フェーズ
+
+    let lastFrameTime = 0;
+
+    let molCanvas, molCtx, graphCanvas, graphCtx, balCanvas, balCtx;
+
+    // ============================================
+    // 初期化
+    // ============================================
+    function init() {
+      molCanvas = document.getElementById('moleculeCanvas');
+      graphCanvas = document.getElementById('graphCanvas');
+      balCanvas = document.getElementById('balanceCanvas');
+      molCtx = molCanvas.getContext('2d');
+      graphCtx = graphCanvas.getContext('2d');
+      balCtx = balCanvas.getContext('2d');
+
+      resizeAll();
+      window.addEventListener('resize', resizeAll);
+
+      document.getElementById('startBtn').addEventListener('click', toggleSim);
+      document.getElementById('resetBtn').addEventListener('click', resetSim);
+      document.getElementById('kfSlider').addEventListener('input', e => {
+        kF = parseFloat(e.target.value);
+        document.getElementById('kfValue').textContent = kF.toFixed(2);
+      });
+      document.getElementById('krSlider').addEventListener('input', e => {
+        kR = parseFloat(e.target.value);
+        document.getElementById('krValue').textContent = kR.toFixed(2);
+      });
+      document.getElementById('speedSlider').addEventListener('input', e => {
+        speed = parseFloat(e.target.value);
+        document.getElementById('speedValue').textContent = speed.toFixed(1) + 'x';
+      });
+      document.getElementById('addABtn').addEventListener('click', () => addMols('A', 10));
+      document.getElementById('addBBtn').addEventListener('click', () => addMols('B', 10));
+
+      createMolecules();
+      drawAll();
+    }
+
+    function resizeAll() {
+      const dpr = window.devicePixelRatio || 1;
+      [molCanvas, graphCanvas, balCanvas].forEach(c => {
+        const p = c.parentElement;
+        const w = p.clientWidth, h = p.clientHeight;
+        c.width = w * dpr; c.height = h * dpr;
+        c.style.width = w + 'px'; c.style.height = h + 'px';
+        c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+      });
+      if (!isRunning) drawAll();
+    }
+
+    function drawAll() {
+      drawMolecules();
+      drawGraph();
+      drawBalance();
+    }
+
+    // ============================================
+    // 分子管理
+    // ============================================
+    function createMolecules() {
+      molecules = []; effects = [];
+      graphData = [{ time: 0, a: INITIAL_A, b: 0 }];
+      simTime = 0; convFTotal = 0; convRTotal = 0;
+      smoothRateF = 0; smoothRateR = 0;
+      eqTimer = 0; equilibriumReached = false; wasAtEquilibrium = false;
+      balanceAngle = -0.3; balanceTargetAngle = -0.3;
+
+      const w = molCanvas.clientWidth, h = molCanvas.clientHeight;
+      for (let i = 0; i < INITIAL_A; i++) molecules.push(makeMol('A', w, h));
+    }
+
+    function makeMol(type, aw, ah) {
+      const m = MOL_R + 4;
+      const ang = Math.random() * Math.PI * 2;
+      const spd = MOL_SPEED * (0.5 + Math.random());
+      return {
+        x: m + Math.random() * (aw - m * 2),
+        y: m + Math.random() * (ah - m * 2),
+        vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+        type, flashTimer: 0
+      };
+    }
+
+    function addMols(type, n) {
+      const w = molCanvas.clientWidth, h = molCanvas.clientHeight;
+      for (let i = 0; i < n; i++) molecules.push(makeMol(type, w, h));
+      if (equilibriumReached) {
+        equilibriumReached = false; eqTimer = 0;
+        updateBadge('perturbed');
+        document.getElementById('balanceArea').classList.remove('eq-glow');
+      }
+      updateUI();
+      if (!isRunning) drawAll();
+    }
+
+    // ============================================
+    // コントロール
+    // ============================================
+    function toggleSim() {
+      isRunning = !isRunning;
+      const btn = document.getElementById('startBtn');
+      if (isRunning) {
+        btn.textContent = '⏸ 一時停止'; btn.classList.add('running');
+        lastFrameTime = performance.now();
+        if (simTime === 0) updateBadge('approaching');
+        requestAnimationFrame(loop);
+      } else {
+        btn.textContent = '▶ 再開'; btn.classList.remove('running');
+      }
+    }
+
+    function resetSim() {
+      isRunning = false;
+      const btn = document.getElementById('startBtn');
+      btn.textContent = '▶ スタート'; btn.classList.remove('running');
+      createMolecules();
+      updateUI(); updateBadge('waiting');
+      document.getElementById('balanceArea').classList.remove('eq-glow');
+      document.getElementById('convNote').textContent = '反応が起きると、ここのカウントが増えます';
+      document.getElementById('convNote').classList.remove('highlight');
+      drawAll();
+    }
+
+    // ============================================
+    // メインループ
+    // ============================================
+    function loop(ts) {
+      if (!isRunning) return;
+      const realDt = Math.min((ts - lastFrameTime) / 1000, 0.05);
+      lastFrameTime = ts;
+      const dt = realDt * speed;
+
+      update(dt);
+      drawAll();
+      updateUI();
+
+      requestAnimationFrame(loop);
+    }
+
+    // ============================================
+    // 物理更新
+    // ============================================
+    function update(dt) {
+      simTime += dt;
+      const w = molCanvas.clientWidth, h = molCanvas.clientHeight;
+      let fConv = 0, rConv = 0;
+
+      molecules.forEach(mol => {
+        // 移動
+        mol.x += mol.vx * dt;
+        mol.y += mol.vy * dt;
+        if (mol.x < MOL_R) { mol.x = MOL_R; mol.vx = Math.abs(mol.vx); }
+        if (mol.x > w - MOL_R) { mol.x = w - MOL_R; mol.vx = -Math.abs(mol.vx); }
+        if (mol.y < MOL_R) { mol.y = MOL_R; mol.vy = Math.abs(mol.vy); }
+        if (mol.y > h - MOL_R) { mol.y = h - MOL_R; mol.vy = -Math.abs(mol.vy); }
+
+        // 反応判定
+        if (mol.type === 'A') {
+          if (Math.random() < 1 - Math.exp(-kF * dt)) {
+            mol.type = 'B'; mol.flashTimer = 0.35; fConv++;
+            effects.push({ x: mol.x, y: mol.y, timer: 0.4, color: '#fb923c' });
+          }
+        } else {
+          if (Math.random() < 1 - Math.exp(-kR * dt)) {
+            mol.type = 'A'; mol.flashTimer = 0.35; rConv++;
+            effects.push({ x: mol.x, y: mol.y, timer: 0.4, color: '#22d3ee' });
+          }
+        }
+        if (mol.flashTimer > 0) mol.flashTimer -= dt;
+      });
+
+      effects = effects.filter(e => { e.timer -= dt; return e.timer > 0; });
+      convFTotal += fConv; convRTotal += rConv;
+
+      // 反応速度の平滑化
+      const cA = molecules.filter(m => m.type === 'A').length;
+      const cB = molecules.filter(m => m.type === 'B').length;
+      smoothRateF = SMOOTH * smoothRateF + (1 - SMOOTH) * kF * cA;
+      smoothRateR = SMOOTH * smoothRateR + (1 - SMOOTH) * kR * cB;
+
+      // 天秤角度の計算
+      const maxR = Math.max(smoothRateF, smoothRateR, 0.1);
+      const diff = (smoothRateF - smoothRateR) / maxR; // -1 ~ +1
+      balanceTargetAngle = -diff * 0.35; // 正反応優勢→左下がり(-)
+      balanceAngle += (balanceTargetAngle - balanceAngle) * 0.05;
+      balanceWobble += dt * 4;
+
+      // 平衡検出
+      const ratio = Math.abs(smoothRateF - smoothRateR) / maxR;
+      if (ratio < 0.08 && simTime > 1) {
+        eqTimer += dt;
+        if (eqTimer > 2.0 && !equilibriumReached) {
+          equilibriumReached = true; wasAtEquilibrium = true;
+          updateBadge('equilibrium');
+          document.getElementById('balanceArea').classList.add('eq-glow');
+        }
+      } else {
+        eqTimer = Math.max(0, eqTimer - dt * 2);
+        if (equilibriumReached) {
+          equilibriumReached = false;
+          if (wasAtEquilibrium) {
+            updateBadge('perturbed');
+            document.getElementById('balanceArea').classList.remove('eq-glow');
+          }
+        }
+      }
+
+      // 変換ノート更新
+      if (equilibriumReached) {
+        const el = document.getElementById('convNote');
+        el.textContent = '⚡ 平衡中もカウントが増え続ける → 反応は止まっていない！';
+        el.classList.add('highlight');
+      } else if (simTime > 0.5 && !wasAtEquilibrium) {
+        document.getElementById('convNote').textContent = '変換が進行中...';
+        document.getElementById('convNote').classList.remove('highlight');
+      }
+
+      // グラフデータ
+      const last = graphData[graphData.length - 1];
+      if (simTime - last.time >= 0.15) {
+        graphData.push({ time: simTime, a: cA, b: cB });
+      }
+    }
+
+    // ============================================
+    // 天秤描画
+    // ============================================
+    function drawBalance() {
+      const ctx = balCtx;
+      const w = balCanvas.clientWidth, h = balCanvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+
+      const cx = w / 2, cy = h * 0.45;
+      const beamLen = Math.min(w * 0.38, 180);
+      const isEq = equilibriumReached;
+
+      // 微振動（平衡中も「動いている」を表現）
+      let wobble = 0;
+      if (isEq) {
+        wobble = Math.sin(balanceWobble) * 0.012;
+      }
+      const angle = balanceAngle + wobble;
+
+      // 支点（三角形）
+      const triH = 12;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - 8, cy + triH);
+      ctx.lineTo(cx + 8, cy + triH);
+      ctx.closePath();
+      ctx.fillStyle = isEq ? '#4ade80' : '#64748b';
+      ctx.fill();
+
+      // 支柱
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + triH);
+      ctx.lineTo(cx, h - 4);
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // ビーム
+      const lx = cx - Math.cos(angle) * beamLen;
+      const ly = cy - Math.sin(angle) * beamLen;
+      const rx = cx + Math.cos(angle) * beamLen;
+      const ry = cy + Math.sin(angle) * beamLen;
+
+      ctx.beginPath();
+      ctx.moveTo(lx, ly); ctx.lineTo(rx, ry);
+      ctx.strokeStyle = isEq ? '#4ade80' : '#94a3b8';
+      ctx.lineWidth = isEq ? 4 : 3;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // 平衡時のグロー
+      if (isEq) {
+        ctx.beginPath();
+        ctx.moveTo(lx, ly); ctx.lineTo(rx, ry);
+        ctx.strokeStyle = 'rgba(74, 222, 128, 0.3)';
+        ctx.lineWidth = 10;
+        ctx.stroke();
+      }
+
+      // 左皿（正反応 v₁）
+      drawPan(ctx, lx, ly, 'v₁', smoothRateF.toFixed(1), '#22d3ee', isEq);
+      // 右皿（逆反応 v₂）
+      drawPan(ctx, rx, ry, 'v₂', smoothRateR.toFixed(1), '#fb923c', isEq);
+
+      // 中央のステータス
+      if (simTime > 0.3) {
+        ctx.font = 'bold 13px sans-serif';
+        ctx.textAlign = 'center';
+        if (isEq) {
+          ctx.fillStyle = '#4ade80';
+          ctx.fillText('v₁ = v₂  ✓ 動的平衡', cx, h - 2);
+        } else if (smoothRateF > smoothRateR * 1.05) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText('v₁ > v₂（正反応が優勢）', cx, h - 2);
+        } else if (smoothRateR > smoothRateF * 1.05) {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fillText('v₂ > v₁（逆反応が優勢）', cx, h - 2);
+        } else {
+          ctx.fillStyle = '#a3e635';
+          ctx.fillText('v₁ ≈ v₂（ほぼ等しい）', cx, h - 2);
+        }
+      }
+    }
+
+    function drawPan(ctx, x, y, label, value, color, isEq) {
+      // 皿（半円）
+      const pw = 48, ph = 6;
+      ctx.beginPath();
+      ctx.ellipse(x, y + 6, pw / 2, ph, 0, 0, Math.PI);
+      ctx.fillStyle = isEq ? 'rgba(74,222,128,0.3)' : 'rgba(148,163,184,0.2)';
+      ctx.fill();
+      ctx.strokeStyle = isEq ? '#4ade80' : color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // 吊り糸
+      ctx.beginPath();
+      ctx.moveTo(x, y); ctx.lineTo(x, y + 4);
+      ctx.strokeStyle = '#64748b'; ctx.lineWidth = 1; ctx.stroke();
+
+      // ラベル
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = color;
+      ctx.fillText(label + '=' + value, x, y - 6);
+    }
+
+    // ============================================
+    // 分子描画
+    // ============================================
+    function drawMolecules() {
+      const ctx = molCtx;
+      const w = molCanvas.clientWidth, h = molCanvas.clientHeight;
+
+      ctx.fillStyle = '#060e1a';
+      ctx.fillRect(0, 0, w, h);
+
+      // グリッド
+      ctx.strokeStyle = 'rgba(255,255,255,0.015)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+      for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+
+      // エフェクト
+      effects.forEach(e => {
+        const p = 1 - e.timer / 0.4;
+        const r = MOL_R + p * 18;
+        ctx.globalAlpha = (1 - p) * 0.5;
+        ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = e.color; ctx.lineWidth = 2; ctx.stroke();
+        ctx.globalAlpha = 1;
+      });
+
+      // 分子
+      molecules.forEach(mol => {
+        const r = MOL_R;
+        // フラッシュグロー
+        if (mol.flashTimer > 0) {
+          const f = mol.flashTimer / 0.35;
+          ctx.globalAlpha = f * 0.35;
+          ctx.beginPath(); ctx.arc(mol.x, mol.y, r * 2.5, 0, Math.PI * 2);
+          ctx.fillStyle = mol.type === 'A' ? '#22d3ee' : '#fb923c';
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
+        ctx.beginPath(); ctx.arc(mol.x, mol.y, r, 0, Math.PI * 2);
+        const g = ctx.createRadialGradient(mol.x - r * 0.25, mol.y - r * 0.25, 0, mol.x, mol.y, r);
+        if (mol.type === 'A') {
+          g.addColorStop(0, mol.flashTimer > 0 ? '#fff' : '#67e8f9');
+          g.addColorStop(0.6, '#22d3ee');
+          g.addColorStop(1, '#0e7490');
+        } else {
+          g.addColorStop(0, mol.flashTimer > 0 ? '#fff' : '#fdba74');
+          g.addColorStop(0.6, '#fb923c');
+          g.addColorStop(1, '#c2410c');
+        }
+        ctx.fillStyle = g;
+        ctx.fill();
+      });
+    }
+
+    // ============================================
+    // グラフ描画
+    // ============================================
+    function drawGraph() {
+      const ctx = graphCtx;
+      const w = graphCanvas.clientWidth, h = graphCanvas.clientHeight;
+
+      ctx.fillStyle = '#0b1422';
+      ctx.fillRect(0, 0, w, h);
+
+      const pad = { top: 10, right: 10, bottom: 22, left: 36 };
+      const gw = w - pad.left - pad.right, gh = h - pad.top - pad.bottom;
+
+      const winSize = 30;
+      const maxTime = Math.max(winSize, simTime + 2);
+      const minTime = maxTime - winSize;
+      const maxCount = Math.max(molecules.length + 5, INITIAL_A, ...graphData.map(d => Math.max(d.a, d.b)));
+
+      // グリッド
+      ctx.strokeStyle = '#1a2840'; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (gh * i) / 4;
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+        ctx.fillStyle = '#4a5568'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxCount * (1 - i / 4)), pad.left - 4, y + 3);
+      }
+
+      // X軸
+      ctx.fillStyle = '#4a5568'; ctx.textAlign = 'center';
+      for (let t = Math.ceil(minTime / 5) * 5; t <= maxTime; t += 5) {
+        if (t < 0) continue;
+        const x = pad.left + ((t - minTime) / (maxTime - minTime)) * gw;
+        if (x >= pad.left && x <= w - pad.right)
+          ctx.fillText(t.toFixed(0) + 's', x, h - pad.bottom + 13);
+      }
+
+      const vis = graphData.filter(d => d.time >= minTime - 1);
+      if (vis.length < 2) return;
+
+      function tx(t) { return pad.left + ((t - minTime) / (maxTime - minTime)) * gw; }
+      function cy(c) { return pad.top + (1 - c / maxCount) * gh; }
+
+      // A
+      ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2.5; ctx.beginPath();
+      vis.forEach((d, i) => { const x = tx(d.time), y = cy(d.a); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+      ctx.stroke();
+
+      // B
+      ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 2.5; ctx.beginPath();
+      vis.forEach((d, i) => { const x = tx(d.time), y = cy(d.b); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+      ctx.stroke();
+
+      // ドット
+      const last = vis[vis.length - 1];
+      if (last) {
+        [{ c: last.a, col: '#22d3ee' }, { c: last.b, col: '#fb923c' }].forEach(item => {
+          ctx.beginPath(); ctx.arc(tx(last.time), cy(item.c), 4, 0, Math.PI * 2);
+          ctx.fillStyle = item.col; ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+        });
+      }
+    }
+
+    // ============================================
+    // UI更新
+    // ============================================
+    function updateUI() {
+      const cA = molecules.filter(m => m.type === 'A').length;
+      const cB = molecules.filter(m => m.type === 'B').length;
+      const total = molecules.length;
+      document.getElementById('countA').textContent = cA;
+      document.getElementById('countB').textContent = cB;
+      document.getElementById('elapsedTime').textContent = simTime.toFixed(1);
+      document.getElementById('totalMol').textContent = total;
+      document.getElementById('percentA').textContent = total > 0 ? Math.round(cA / total * 100) + '%' : '0%';
+      document.getElementById('percentB').textContent = total > 0 ? Math.round(cB / total * 100) + '%' : '0%';
+      document.getElementById('convF').textContent = convFTotal;
+      document.getElementById('convR').textContent = convRTotal;
+    }
+
+    function updateBadge(state) {
+      const b = document.getElementById('statusBadge');
+      b.className = 'status-badge ' + state;
+      const msgs = {
+        waiting: 'スタートを押して観察開始',
+        approaching: '⏳ 平衡に向かって変化中...',
+        equilibrium: '✅ 動的平衡に到達！ ― でも反応は止まっていない',
+        perturbed: '⚡ 平衡が乱された！再び平衡へ向かう...'
+      };
+      b.textContent = msgs[state] || '';
+    }
+
+    // ============================================
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
